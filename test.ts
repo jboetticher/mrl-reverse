@@ -78,60 +78,57 @@ async function main() {
     });
   const batchEthereumExtrinsic = createEthereumXCMTx(batchApproveTransferTx(alphaAPI));
 
-  // temporary return just to print out calldata
-  return;
-
   // Create transaction to send USDC
   // TODO: change to transferMultiassets
-  const sendUSDCExtrinsic = betaAPI.tx.xTokens.transferMultiassets(
-    { V1: [
-      {
-        id: {
-          Concrete: {
-            parents: 0,
-            interior: "Here"
-          }
-        },
-        fun: {
-          Fungible: "100000000000000000" // 0.1
-        }
-      },
-      {
-        id: {
-          Concrete: {
-            parents: 1,
-            interior: {
-              X3: {
-                Parachain: 1000,
-                PalletInstance: 48,
-                AccountKey20: {
-                  network: "Any",
-                  key: WRAPPED_FTM_ADDRESS
-                }
-              }
-            }
-          }
-        },
-        fun: {
-          Fungible: "100000000000000000" // 0.1
-        }
-      }
-    ] },
-    0, // feeItem (native currency)
-    { // destination
-      parents: 1,
-      interior: {
-        X2: {
-          Parachain: 1000,
-          AccountKey20: {
-            network: "Any",
-            key: MLD_ACCOUNT
-          }
-        }
-      }
-    },
-    "Unlimited"
-  )
+  // const sendUSDCExtrinsic = betaAPI.tx.xTokens.transferMultiassets(
+  //   { V1: [
+  //     {
+  //       id: {
+  //         Concrete: {
+  //           parents: 0,
+  //           interior: "Here"
+  //         }
+  //       },
+  //       fun: {
+  //         Fungible: "100000000000000000" // 0.1
+  //       }
+  //     },
+  //     {
+  //       id: {
+  //         Concrete: {
+  //           parents: 1,
+  //           interior: {
+  //             X3: {
+  //               Parachain: 1000,
+  //               PalletInstance: 48,
+  //               AccountKey20: {
+  //                 network: "Any",
+  //                 key: WRAPPED_FTM_ADDRESS
+  //               }
+  //             }
+  //           }
+  //         }
+  //       },
+  //       fun: {
+  //         Fungible: "100000000000000000" // 0.1
+  //       }
+  //     }
+  //   ] },
+  //   0, // feeItem (native currency)
+  //   { // destination
+  //     parents: 1,
+  //     interior: {
+  //       X2: {
+  //         Parachain: 1000,
+  //         AccountKey20: {
+  //           network: "Any",
+  //           key: MLD_ACCOUNT
+  //         }
+  //       }
+  //     }
+  //   },
+  //   "Unlimited"
+  // )
 
   // TODO: wrap those in a batch transaction to also send FTM or USDC back
   const batchExtrinsic = betaAPI.tx.utility.batchAll([
@@ -139,7 +136,6 @@ async function main() {
     // sendUSDCExtrinsic,
     batchEthereumExtrinsic,
   ]);
-
 
   // Send batch transaction
   await batchExtrinsic.signAndSend(account, ({ status }) => {
@@ -179,10 +175,6 @@ function batchApproveTransferTx(alphaAPI: ApiPromise) {
     [approveTx, transferTx],
     [60000, 200000]
   ]);
-
-  console.log('approveTx', approveTx);
-  console.log('transferTx', transferTx);
-  console.log('batchTx', batchTx);
 
   // Create the ethereumXCM extrinsic that uses the batch precompile
   const batchXCMTx = alphaAPI.tx.ethereumXcm.transact({
