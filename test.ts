@@ -3,8 +3,6 @@ import Keyring from '@polkadot/keyring';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import secrets from './secrets';
 import { BN } from "@polkadot/util";
-import { SubmittableExtrinsic } from '@polkadot/api/types';
-import { ISubmittableResult } from '@polkadot/types/types';
 import abi from './abi';
 import { ethers } from 'ethers';
 import { createNonce } from '@certusone/wormhole-sdk';
@@ -24,12 +22,30 @@ In a single transaction, do the following:
 const ALPHA_ENDPOINT = 'wss://wss.api.moonbase.moonbeam.network';
 const BETA_ENDPOINT = 'wss://frag-moonbase-beta-rpc-ws.g.moonbase.moonbeam.network';
 
-// Smart Contracts
+// Smart Contracts & Addresses
 const BATCH_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000808';
 const WRAPPED_FTM_ADDRESS = '0x566c1cebc6A4AFa1C122E039C4BEBe77043148Ee';
 const TOKEN_BRIDGE_ADDRESS = '0xbc976D4b9D57E57c3cA52e1Fd136C45FF7955A96';
-const INCREMENT_ADDRESS = '0x7ab3cfcd076a3744331f8621840f1fafec75bdc7';
 const MLD_ACCOUNT = '0x6536B2C33B816284B97B39b2CE5bb2898dd2d9b0';
+
+const INCREMENT_ADDRESS = '0x7ab3cfcd076a3744331f8621840f1fafec75bdc7';
+
+// Constants
+const AMOUNT_TO_SEND = "100000000000000000";
+const FANTOM_MULTILOCATION = {
+  id: {
+    Concrete: {
+      parents: new BN(1), interior: {
+        X3: [
+          { Parachain: 1000 },
+          { PalletInstance: 48 },
+          { AccountKey20: { network: "Any", key: WRAPPED_FTM_ADDRESS } }
+        ]
+      }
+    }
+  },
+  fun: { Fungible: new BN(AMOUNT_TO_SEND) }
+};
 
 // Create a keyring instance
 const keyring = new Keyring({ type: 'ethereum' });
@@ -43,10 +59,12 @@ async function main() {
   const betaAPI = await ApiPromise.create({ provider: betaWSProvider });
 
   // Create & add ethereum tx to XCM message
-  const createEthereumXCMTx = (tx: SubmittableExtrinsic<"promise", ISubmittableResult>) => betaAPI.tx.polkadotXcm.send(
+  const ethereumTx = batchApproveTransferTx(alphaAPI);
+  const xcmExtrinsic = betaAPI.tx.polkadotXcm.send(
     { V1: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
     {
       V2: [
+        // Withdraw DEV asset from the target account
         {
           WithdrawAsset: [
             {
@@ -55,6 +73,7 @@ async function main() {
             }
           ]
         },
+        // Buy execution with the DEV asset
         {
           BuyExecution: {
             fees:
@@ -70,72 +89,37 @@ async function main() {
             originType: "SovereignAccount",
             requireWeightAtMost: new BN("8000000000"),
             call: {
-              encoded: tx.method.toHex()
+              encoded: ethereumTx.method.toHex()
             }
           }
         }
       ]
     });
-  const batchEthereumExtrinsic = createEthereumXCMTx(batchApproveTransferTx(alphaAPI));
 
   // Create transaction to send USDC
-  // TODO: change to transferMultiassets
-  // const sendUSDCExtrinsic = betaAPI.tx.xTokens.transferMultiassets(
-  //   { V1: [
-  //     {
-  //       id: {
-  //         Concrete: {
-  //           parents: 0,
-  //           interior: "Here"
-  //         }
-  //       },
-  //       fun: {
-  //         Fungible: "100000000000000000" // 0.1
-  //       }
-  //     },
-  //     {
-  //       id: {
-  //         Concrete: {
-  //           parents: 1,
-  //           interior: {
-  //             X3: {
-  //               Parachain: 1000,
-  //               PalletInstance: 48,
-  //               AccountKey20: {
-  //                 network: "Any",
-  //                 key: WRAPPED_FTM_ADDRESS
-  //               }
-  //             }
-  //           }
-  //         }
-  //       },
-  //       fun: {
-  //         Fungible: "100000000000000000" // 0.1
-  //       }
-  //     }
-  //   ] },
-  //   0, // feeItem (native currency)
-  //   { // destination
-  //     parents: 1,
-  //     interior: {
-  //       X2: {
-  //         Parachain: 1000,
-  //         AccountKey20: {
-  //           network: "Any",
-  //           key: MLD_ACCOUNT
-  //         }
-  //       }
-  //     }
-  //   },
-  //   "Unlimited"
-  // )
+  const sendUSDCExtrinsic = betaAPI.tx.xTokens.transfer(
+    'SelfReserve',
+    100000,
+    {
+      V1: {
+        parents: 1,
+        interior: {
+          X2: [
+            { Parachain: 1000 },
+            { AccountKey20: { network: "Any", key: MLD_ACCOUNT } }
+          ]
+        }
+      }
+    },
+    'Unlimited'
+  );
 
-  // TODO: wrap those in a batch transaction to also send FTM or USDC back
+  // Wrap those in a batch transaction to also send FTM or USDC back
   const batchExtrinsic = betaAPI.tx.utility.batchAll([
-    // TODO: add transaction to send USDC (still testing FTM)
-    // sendUSDCExtrinsic,
-    batchEthereumExtrinsic,
+    sendUSDCExtrinsic,
+    xcmExtrinsic,
   ]);
+  console.log('Batch Extrinsic:', batchExtrinsic.method.toHex());
 
   // Send batch transaction
   await batchExtrinsic.signAndSend(account, ({ status }) => {
@@ -158,11 +142,10 @@ function batchApproveTransferTx(alphaAPI: ApiPromise) {
   const TokenBridge = new ethers.utils.Interface(abi.ITokenBridge);
 
   // Create contract calls & batch them
-  const TENTH_FTM = "100000000000000000";
-  const approveTx = WrappedFTM.encodeFunctionData("approve", [TOKEN_BRIDGE_ADDRESS, TENTH_FTM]);
-  const transferTx = TokenBridge.encodeFunctionData("transferTokens",  [
+  const approveTx = WrappedFTM.encodeFunctionData("approve", [TOKEN_BRIDGE_ADDRESS, AMOUNT_TO_SEND]);
+  const transferTx = TokenBridge.encodeFunctionData("transferTokens", [
     WRAPPED_FTM_ADDRESS,
-    TENTH_FTM,
+    AMOUNT_TO_SEND,
     10, // Fantom Testnet
     '0x0000000000000000000000000394c0EdFcCA370B20622721985B577850B0eb75',
     0, // arbiter fee
@@ -170,8 +153,8 @@ function batchApproveTransferTx(alphaAPI: ApiPromise) {
   ]);
 
   const batchTx = Batch.encodeFunctionData('batchAll', [
-    [WRAPPED_FTM_ADDRESS, TOKEN_BRIDGE_ADDRESS], 
-    [0, 0], 
+    [WRAPPED_FTM_ADDRESS, TOKEN_BRIDGE_ADDRESS],
+    [0, 0],
     [approveTx, transferTx],
     [60000, 200000]
   ]);
@@ -202,8 +185,8 @@ function batchApproveMockTx(alphaAPI: ApiPromise) {
   const TRANSFER = 0x1ab5d260;
 
   const batchTx = Batch.encodeFunctionData('batchAll', [
-    [WRAPPED_FTM_ADDRESS, "0x22511940eEF9C802Ca290261e80557293B362De0" /*TOKEN_BRIDGE_ADDRESS*/], 
-    [0, 0], 
+    [WRAPPED_FTM_ADDRESS, "0x22511940eEF9C802Ca290261e80557293B362De0" /*TOKEN_BRIDGE_ADDRESS*/],
+    [0, 0],
     [approveTx, TRANSFER],
     [60000, 200000]
   ]);
