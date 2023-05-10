@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "start": "ts-node test.ts --resolveJsonModule"
+    "start": "ts-node withGlmr.ts --resolveJsonModule",
+    "original": "ts-node original.ts --resolveJsonModule"
   },
   "dependencies": {
     "@certusone/wormhole-sdk": "^0.9.14",

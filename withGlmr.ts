@@ -10,8 +10,8 @@ import { createNonce } from '@certusone/wormhole-sdk';
 /*
 NEW PLAN:
 
-In a single transaction, do the following:
-1. Send tokens
+In a single transaction, batch 2 transactions:
+1. xTokens transaction that sends the tokens back
 2. Do a transaction that interacts with the batch precompile.
   a. Approve tokens
   b. Cross-chain transaction
@@ -28,24 +28,8 @@ const WRAPPED_FTM_ADDRESS = '0x566c1cebc6A4AFa1C122E039C4BEBe77043148Ee';
 const TOKEN_BRIDGE_ADDRESS = '0xbc976D4b9D57E57c3cA52e1Fd136C45FF7955A96';
 const MLD_ACCOUNT = '0x6536B2C33B816284B97B39b2CE5bb2898dd2d9b0';
 
-const INCREMENT_ADDRESS = '0x7ab3cfcd076a3744331f8621840f1fafec75bdc7';
-
 // Constants
 const AMOUNT_TO_SEND = "100000000000000000";
-const FANTOM_MULTILOCATION = {
-  id: {
-    Concrete: {
-      parents: new BN(1), interior: {
-        X3: [
-          { Parachain: 1000 },
-          { PalletInstance: 48 },
-          { AccountKey20: { network: "Any", key: WRAPPED_FTM_ADDRESS } }
-        ]
-      }
-    }
-  },
-  fun: { Fungible: new BN(AMOUNT_TO_SEND) }
-};
 
 // Create a keyring instance
 const keyring = new Keyring({ type: 'ethereum' });
@@ -64,7 +48,7 @@ async function main() {
     { V1: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
     {
       V2: [
-        // Withdraw DEV asset from the target account
+        // Withdraw DEV asset (0.02) from the target account
         {
           WithdrawAsset: [
             {
@@ -96,11 +80,47 @@ async function main() {
       ]
     });
 
-  // Create transaction to send USDC
-  const sendUSDCExtrinsic = betaAPI.tx.xTokens.transfer(
-    'SelfReserve',
-    100000,
-    {
+  // Create transaction to send FTM and DEV, with DEV as the fee
+  const sendFTMExtrinsic = betaAPI.tx.xTokens.transferMultiassets(
+    { // assets
+      V1: [ 
+        { // xcDEV
+          id: {
+            Concrete: {
+              parents: 1,
+              interior: {
+                X2: [
+                  { Parachain: 1000 },
+                  { PalletInstance: 3 },
+                ]
+              }
+            }
+          },
+          fun: {
+            Fungible: "100000000000000000",
+          }
+        },
+        { // WFTM
+          id: {
+            Concrete: {
+              parents: 1,
+              interior: {
+                X3: [
+                  { Parachain: 1000 },
+                  { PalletInstance: 48 },
+                  { AccountKey20: { network: "Any", key: WRAPPED_FTM_ADDRESS } }
+                ]
+              }
+            }
+          },
+          fun: {
+            Fungible: AMOUNT_TO_SEND,
+          }
+        }
+      ]
+    },
+    0, // feeItem
+    { // dest
       V1: {
         parents: 1,
         interior: {
@@ -114,9 +134,11 @@ async function main() {
     'Unlimited'
   );
 
-  // Wrap those in a batch transaction to also send FTM or USDC back
+  // Wrap those in a batch transaction. This transaction will:
+  // 1. Send FTM + DEV together
+  // 2. Use the left over DEV as the fee currency to do the wormhole route
   const batchExtrinsic = betaAPI.tx.utility.batchAll([
-    sendUSDCExtrinsic,
+    sendFTMExtrinsic,
     xcmExtrinsic,
   ]);
   console.log('Batch Extrinsic:', batchExtrinsic.method.toHex());
@@ -205,22 +227,5 @@ function batchApproveMockTx(alphaAPI: ApiPromise) {
   });
   console.log("Increment Ethereum XCM Tx:", batchXCMTx.method.toHex());
   return batchXCMTx;
-}
-
-// Creates an ethereumXCM extrinsic that increments a number in a simple contract
-function incrementTx(alphaAPI: ApiPromise) {
-  const incrementXCMTx = alphaAPI.tx.ethereumXcm.transact({
-    V1: {
-      gasLimit: new BN(50000),
-      feePayment: 'Auto',
-      action: {
-        Call: INCREMENT_ADDRESS
-      },
-      value: new BN(0),
-      input: '0xd09de08a' // Hex encoded input
-    }
-  });
-  console.log("Increment Ethereum XCM Tx:", incrementXCMTx.method.toHex());
-  return incrementXCMTx;
 }
 
