@@ -1,4 +1,3 @@
-// Import the keyring as required
 import Keyring from '@polkadot/keyring';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import secrets from './secrets';
@@ -8,11 +7,15 @@ import { ethers } from 'ethers';
 import { createNonce } from '@certusone/wormhole-sdk';
 
 /*
-NEW PLAN:
+REQUIREMENTS:
+1. Hold xcFTM.wh on Moonbase Beta
+2. Hold xcDEV (Alphanet's DEV) on Moonbase Beta
 
-In a single transaction, batch 2 transactions:
-1. xTokens transaction that sends the tokens back
-2. Do a transaction that interacts with the batch precompile.
+CURRENT IMPLEMENTATION:
+
+In a single transaction, batch 2 xcm transactions:
+1. xTokens.transferMultiassets transaction that sends xcFTM.wh & xcDEV, which uses xcDEV as the fee currency
+2. Do an xcm-ethereum transaction paid for by the xcDEV sent over from the previous step. This tx interacts with the batch precompile:
   a. Approve tokens
   b. Cross-chain transaction
 
@@ -42,48 +45,10 @@ async function main() {
   const betaWSProvider = new WsProvider(BETA_ENDPOINT);
   const betaAPI = await ApiPromise.create({ provider: betaWSProvider });
 
-  // Create & add ethereum tx to XCM message
-  const ethereumTx = batchApproveTransferTx(alphaAPI);
-  const xcmExtrinsic = betaAPI.tx.polkadotXcm.send(
-    { V1: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
-    {
-      V2: [
-        // Withdraw DEV asset (0.02) from the target account
-        {
-          WithdrawAsset: [
-            {
-              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: 3 } } } },
-              fun: { Fungible: new BN("20000000000000000") }
-            }
-          ]
-        },
-        // Buy execution with the DEV asset
-        {
-          BuyExecution: {
-            fees:
-            {
-              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: 3 } } } },
-              fun: { Fungible: new BN("20000000000000000") }
-            },
-            weightLimit: 'Unlimited'
-          }
-        },
-        {
-          Transact: {
-            originType: "SovereignAccount",
-            requireWeightAtMost: new BN("8000000000"),
-            call: {
-              encoded: ethereumTx.method.toHex()
-            }
-          }
-        }
-      ]
-    });
-
   // Create transaction to send FTM and DEV, with DEV as the fee
   const sendFTMExtrinsic = betaAPI.tx.xTokens.transferMultiassets(
     { // assets
-      V1: [ 
+      V1: [
         { // xcDEV
           id: {
             Concrete: {
@@ -131,8 +96,46 @@ async function main() {
         }
       }
     },
-    'Unlimited'
+    'Unlimited' // weight limit
   );
+
+  // Create & add ethereum tx to XCM message
+  const ethereumTx = batchApproveTransferTx(alphaAPI);
+  const xcmExtrinsic = betaAPI.tx.polkadotXcm.send(
+    { V1: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
+    {
+      V2: [
+        // Withdraw DEV asset (0.02) from the target account
+        {
+          WithdrawAsset: [
+            {
+              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: 3 } } } },
+              fun: { Fungible: new BN("20000000000000000") }
+            }
+          ]
+        },
+        // Buy execution with the DEV asset
+        {
+          BuyExecution: {
+            fees:
+            {
+              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: 3 } } } },
+              fun: { Fungible: new BN("20000000000000000") }
+            },
+            weightLimit: 'Unlimited'
+          }
+        },
+        {
+          Transact: {
+            originType: "SovereignAccount",
+            requireWeightAtMost: new BN("8000000000"),
+            call: {
+              encoded: ethereumTx.method.toHex()
+            }
+          }
+        }
+      ]
+    });
 
   // Wrap those in a batch transaction. This transaction will:
   // 1. Send FTM + DEV together
@@ -141,20 +144,18 @@ async function main() {
     sendFTMExtrinsic,
     xcmExtrinsic,
   ]);
+  console.log("===============================================");
   console.log('Batch Extrinsic:', batchExtrinsic.method.toHex());
 
   // Send batch transaction
-  await batchExtrinsic.signAndSend(account, ({ status }) => {
+  return await batchExtrinsic.signAndSend(account, ({ status }) => {
     if (status.isInBlock) {
-      console.log(`Success!`);
+      console.log("===============================================");
+      console.log(`Moonbase Beta transaction successful!`);
       return;
     }
   });
-
-  return;
 }
-
-main()
 
 // Creates an ethereumXCM extrinsic that approves WFTM + transfers tokens
 function batchApproveTransferTx(alphaAPI: ApiPromise) {
@@ -193,39 +194,9 @@ function batchApproveTransferTx(alphaAPI: ApiPromise) {
       input: batchTx // Hex encoded input
     }
   });
+  console.log("===============================================");
   console.log("Increment Ethereum XCM Tx:", batchXCMTx.method.toHex());
   return batchXCMTx;
 }
 
-// Creates an ethereumXCM extrinsic that approves a contract to transfer WFTM
-function batchApproveMockTx(alphaAPI: ApiPromise) {
-  // Get Batch, IERC20, ITokenBridge contracts
-  const Batch = new ethers.utils.Interface(abi.Batch);
-  const WrappedFTM = new ethers.utils.Interface(abi.IERC20);
-
-  const approveTx = WrappedFTM.encodeFunctionData("approve", ["0x22511940eEF9C802Ca290261e80557293B362De0", "1000000000000000000"]);
-  const TRANSFER = 0x1ab5d260;
-
-  const batchTx = Batch.encodeFunctionData('batchAll', [
-    [WRAPPED_FTM_ADDRESS, "0x22511940eEF9C802Ca290261e80557293B362De0" /*TOKEN_BRIDGE_ADDRESS*/],
-    [0, 0],
-    [approveTx, TRANSFER],
-    [60000, 200000]
-  ]);
-
-  // Create the ethereumXCM extrinsic that uses the batch precompile
-  const batchXCMTx = alphaAPI.tx.ethereumXcm.transact({
-    V1: {
-      gasLimit: new BN(280000),
-      feePayment: 'Auto',
-      action: {
-        Call: BATCH_PRECOMPILE_ADDRESS
-      },
-      value: new BN(0),
-      input: batchTx // Hex encoded input
-    }
-  });
-  console.log("Increment Ethereum XCM Tx:", batchXCMTx.method.toHex());
-  return batchXCMTx;
-}
-
+main();
