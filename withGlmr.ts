@@ -1,10 +1,10 @@
-import Keyring from '@polkadot/keyring';
 import { ApiPromise, WsProvider } from '@polkadot/api';
-import secrets from './secrets';
+import Keyring from '@polkadot/keyring';
 import { BN } from "@polkadot/util";
-import abi from './abi';
-import { ethers } from 'ethers';
 import { createNonce } from '@certusone/wormhole-sdk';
+import { ethers } from 'ethers';
+import secrets from './secrets';
+import abi from './abi';
 
 /*
 REQUIREMENTS:
@@ -33,6 +33,7 @@ const MLD_ACCOUNT = '0x6536B2C33B816284B97B39b2CE5bb2898dd2d9b0';
 
 // Constants
 const AMOUNT_TO_SEND = "100000000000000000";
+const BALANCE_PALLET = 3; // 10 on Moonbeam, 3 on Alphanet
 
 // Create a keyring instance
 const keyring = new Keyring({ type: 'ethereum' });
@@ -56,7 +57,7 @@ async function main() {
               interior: {
                 X2: [
                   { Parachain: 1000 },
-                  { PalletInstance: 3 },
+                  { PalletInstance: BALANCE_PALLET },
                 ]
               }
             }
@@ -109,7 +110,7 @@ async function main() {
         {
           WithdrawAsset: [
             {
-              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: 3 } } } },
+              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: BALANCE_PALLET } } } },
               fun: { Fungible: new BN("20000000000000000") }
             }
           ]
