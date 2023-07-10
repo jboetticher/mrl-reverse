@@ -1,8 +1,7 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import Keyring from '@polkadot/keyring';
 import { BN } from "@polkadot/util";
-import { createNonce } from '@certusone/wormhole-sdk';
-import { ethers } from 'ethers';
+import { ethers, providers } from 'ethers';
 import secrets from './secrets';
 import abi from './abi';
 
@@ -28,11 +27,12 @@ const BETA_ENDPOINT = 'wss://frag-moonbase-beta-rpc-ws.g.moonbase.moonbeam.netwo
 // Smart Contracts & Addresses
 const BATCH_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000808';
 const WRAPPED_FTM_ADDRESS = '0x566c1cebc6A4AFa1C122E039C4BEBe77043148Ee';
-const TOKEN_BRIDGE_ADDRESS = '0xbc976D4b9D57E57c3cA52e1Fd136C45FF7955A96';
+const XLABS_RELAYER_ADDRESS = '0x9563a59c15842a6f322b10f69d1dd88b41f2e97b'; // MAINNET: 0xcafd2f0a35a4459fa40c0517e17e6fa2939441ca
 const MLD_ACCOUNT = '0x6536B2C33B816284B97B39b2CE5bb2898dd2d9b0';
 
 // Constants
-const AMOUNT_TO_SEND = "100000000000000000";
+const AMOUNT_TO_SEND = "250000000000000000";
+const DESTINATION_CHAIN_ID = 10; // Fantom
 const BALANCE_PALLET = 3; // 10 on Moonbeam, 3 on Alphanet
 
 // Create a keyring instance
@@ -49,7 +49,7 @@ async function main() {
   // Create transaction to send FTM and DEV, with DEV as the fee
   const sendFTMExtrinsic = betaAPI.tx.xTokens.transferMultiassets(
     { // assets
-      V1: [
+      V3: [
         { // xcDEV
           id: {
             Concrete: {
@@ -74,7 +74,7 @@ async function main() {
                 X3: [
                   { Parachain: 1000 },
                   { PalletInstance: 48 },
-                  { AccountKey20: { network: "Any", key: WRAPPED_FTM_ADDRESS } }
+                  { AccountKey20: { key: WRAPPED_FTM_ADDRESS } }
                 ]
               }
             }
@@ -87,12 +87,12 @@ async function main() {
     },
     0, // feeItem
     { // dest
-      V1: {
+      V3: {
         parents: 1,
         interior: {
           X2: [
             { Parachain: 1000 },
-            { AccountKey20: { network: "Any", key: MLD_ACCOUNT } }
+            { AccountKey20: { key: MLD_ACCOUNT } }
           ]
         }
       }
@@ -100,18 +100,21 @@ async function main() {
     'Unlimited' // weight limit
   );
 
+  console.log("===============================================");
+  console.log("Send FTM Tx:", sendFTMExtrinsic.method.toHex());
+
   // Create & add ethereum tx to XCM message
-  const ethereumTx = batchApproveTransferTx(alphaAPI);
+  const ethereumTx = await batchApproveTransferTx(alphaAPI);
   const xcmExtrinsic = betaAPI.tx.polkadotXcm.send(
-    { V1: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
+    { V3: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
     {
-      V2: [
-        // Withdraw DEV asset (0.02) from the target account
+      V3: [
+        // Withdraw DEV asset (0.06) from the target account
         {
           WithdrawAsset: [
             {
               id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: BALANCE_PALLET } } } },
-              fun: { Fungible: new BN("20000000000000000") }
+              fun: { Fungible: new BN("60000000000000000") }
             }
           ]
         },
@@ -121,22 +124,37 @@ async function main() {
             fees:
             {
               id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: 3 } } } },
-              fun: { Fungible: new BN("20000000000000000") }
+              fun: { Fungible: new BN("60000000000000000") }
             },
             weightLimit: 'Unlimited'
           }
         },
         {
           Transact: {
-            originType: "SovereignAccount",
-            requireWeightAtMost: new BN("8000000000"),
+            originKind: "SovereignAccount",
+            requireWeightAtMost: { refTime: new BN("16000000000"), proofSize: 0 },
             call: {
               encoded: ethereumTx.method.toHex()
             }
           }
+        },
+        {
+          RefundSurplus: {}
+        },
+        {
+          DepositAsset: {
+            assets: { Wild: "All" },
+            beneficiary: {
+              parents: new BN(0),
+              interior: { X1: { AccountKey20: { key: MLD_ACCOUNT } } },
+            },
+          },
         }
       ]
     });
+
+  console.log("===============================================");
+  console.log("Remote EVM Tx:", xcmExtrinsic.method.toHex());
 
   // Wrap those in a batch transaction. This transaction will:
   // 1. Send FTM + DEV together
@@ -149,44 +167,53 @@ async function main() {
   console.log('Batch Extrinsic:', batchExtrinsic.method.toHex());
 
   // Send batch transaction
-  return await batchExtrinsic.signAndSend(account, ({ status }) => {
-    if (status.isInBlock) {
-      console.log("===============================================");
-      console.log(`Moonbase Beta transaction successful!`);
-      return;
-    }
-  });
+  // return await batchExtrinsic.signAndSend(account, ({ status }) => {
+  //   if (status.isInBlock) {
+  //     console.log("===============================================");
+  //     console.log(`Moonbase Beta transaction successful!`);
+  //     return;
+  //   }
+  // });
 }
 
 // Creates an ethereumXCM extrinsic that approves WFTM + transfers tokens
-function batchApproveTransferTx(alphaAPI: ApiPromise) {
+async function batchApproveTransferTx(alphaAPI: ApiPromise) {
   // Get Batch, IERC20, ITokenBridge contracts
   const Batch = new ethers.utils.Interface(abi.Batch);
   const WrappedFTM = new ethers.utils.Interface(abi.IERC20);
-  const TokenBridge = new ethers.utils.Interface(abi.ITokenBridge);
+  const TokenRelayer = new ethers.Contract(
+    XLABS_RELAYER_ADDRESS,
+    abi.TokenRelayer,
+    new providers.JsonRpcProvider('https://moonbase-alpha.public.blastapi.io')
+  );
 
   // Create contract calls & batch them
-  const approveTx = WrappedFTM.encodeFunctionData("approve", [TOKEN_BRIDGE_ADDRESS, AMOUNT_TO_SEND]);
-  const transferTx = TokenBridge.encodeFunctionData("transferTokens", [
+  const approveTx = WrappedFTM.encodeFunctionData("approve", [XLABS_RELAYER_ADDRESS, AMOUNT_TO_SEND]);
+
+  const relayerFee = await TokenRelayer.calculateRelayerFee(DESTINATION_CHAIN_ID, WRAPPED_FTM_ADDRESS, 18);
+  console.log(`The relayer fee for this token will be ${relayerFee}.`);
+
+  // TODO: replace with wrapAndTransferEthWithRelay if is GLMR
+  const transferTx = TokenRelayer.interface.encodeFunctionData("transferTokensWithRelay", [
     WRAPPED_FTM_ADDRESS,
     AMOUNT_TO_SEND,
-    10, // Fantom Testnet
-    '0x0000000000000000000000000394c0EdFcCA370B20622721985B577850B0eb75',
-    0, // arbiter fee
-    createNonce().readUInt32LE(0) // nonce
+    0, // amount of natural currency to turn into fee? Should work on testnet as long as not 0
+    DESTINATION_CHAIN_ID, // Target chain, Fantom
+    '0x0000000000000000000000000394c0EdFcCA370B20622721985B577850B0eb75', // Target recipient
+    0 // batchId
   ]);
 
   const batchTx = Batch.encodeFunctionData('batchAll', [
-    [WRAPPED_FTM_ADDRESS, TOKEN_BRIDGE_ADDRESS],
+    [WRAPPED_FTM_ADDRESS, XLABS_RELAYER_ADDRESS],
     [0, 0],
     [approveTx, transferTx],
-    [60000, 200000]
+    [90000, 300000]
   ]);
 
   // Create the ethereumXCM extrinsic that uses the batch precompile
   const batchXCMTx = alphaAPI.tx.ethereumXcm.transact({
     V1: {
-      gasLimit: new BN(280000),
+      gasLimit: new BN(400000),
       feePayment: 'Auto',
       action: {
         Call: BATCH_PRECOMPILE_ADDRESS
@@ -196,7 +223,7 @@ function batchApproveTransferTx(alphaAPI: ApiPromise) {
     }
   });
   console.log("===============================================");
-  console.log("Increment Ethereum XCM Tx:", batchXCMTx.method.toHex());
+  console.log("Batched XLabs EVM Tx:", batchXCMTx.method.toHex());
   return batchXCMTx;
 }
 
