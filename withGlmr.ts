@@ -28,7 +28,7 @@ const BETA_ENDPOINT = 'wss://frag-moonbase-beta-rpc-ws.g.moonbase.moonbeam.netwo
 const BATCH_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000808';
 const WRAPPED_FTM_ADDRESS = '0x566c1cebc6A4AFa1C122E039C4BEBe77043148Ee';
 const XLABS_RELAYER_ADDRESS = '0x9563a59c15842a6f322b10f69d1dd88b41f2e97b'; // MAINNET: 0xcafd2f0a35a4459fa40c0517e17e6fa2939441ca
-const MLD_ACCOUNT = '0x6536B2C33B816284B97B39b2CE5bb2898dd2d9b0';
+const MLD_ACCOUNT = '0xD117eD760630549A4A8302BEC538B7b285751EcA';
 
 // Constants
 const AMOUNT_TO_SEND = "250000000000000000";
@@ -105,6 +105,9 @@ async function main() {
 
   // Create & add ethereum tx to XCM message
   const ethereumTx = await batchApproveTransferTx(alphaAPI);
+  const txWeight = (await ethereumTx.paymentInfo(MLD_ACCOUNT)).weight;
+  console.log("===============================================");
+  console.log("Payment Info for Transact:", txWeight.toString());
   const xcmExtrinsic = betaAPI.tx.polkadotXcm.send(
     { V3: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
     {
@@ -132,26 +135,37 @@ async function main() {
         {
           Transact: {
             originKind: "SovereignAccount",
-            requireWeightAtMost: { refTime: new BN("16000000000"), proofSize: 0 },
+            // https://docs.moonbeam.network/builders/interoperability/xcm/remote-evm-calls/#estimate-weight-required-at-most
+            requireWeightAtMost: { refTime: txWeight.refTime, proofSize: txWeight.proofSize },
             call: {
               encoded: ethereumTx.method.toHex()
             }
           }
         },
-        {
-          RefundSurplus: {}
-        },
-        {
-          DepositAsset: {
-            assets: { Wild: "All" },
-            beneficiary: {
-              parents: new BN(0),
-              interior: { X1: { AccountKey20: { key: MLD_ACCOUNT } } },
-            },
-          },
-        }
+        // {
+        //   RefundSurplus: {}
+        // },
+        // {
+        //   DepositAsset: {
+        //     assets: { Wild: "All" },
+        //     beneficiary: {
+        //       parents: new BN(0),
+        //       interior: { X1: { AccountKey20: { key: MLD_ACCOUNT } } },
+        //     },
+        //   },
+        // }
       ]
     });
+
+  return await xcmExtrinsic.signAndSend(account, ({ status }) => {
+    if (status.isInBlock) {
+      console.log("===============================================");
+      console.log(`Moonbase Beta transaction successful!`);
+      alphaAPI.disconnect();
+      betaAPI.disconnect();
+      return;
+    }
+  });
 
   console.log("===============================================");
   console.log("Remote EVM Tx:", xcmExtrinsic.method.toHex());
@@ -167,13 +181,13 @@ async function main() {
   console.log('Batch Extrinsic:', batchExtrinsic.method.toHex());
 
   // Send batch transaction
-  // return await batchExtrinsic.signAndSend(account, ({ status }) => {
-  //   if (status.isInBlock) {
-  //     console.log("===============================================");
-  //     console.log(`Moonbase Beta transaction successful!`);
-  //     return;
-  //   }
-  // });
+  return await batchExtrinsic.signAndSend(account, ({ status }) => {
+    if (status.isInBlock) {
+      console.log("===============================================");
+      console.log(`Moonbase Beta transaction successful!`);
+      return;
+    }
+  });
 }
 
 // Creates an ethereumXCM extrinsic that approves WFTM + transfers tokens
@@ -189,6 +203,7 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
 
   // Create contract calls & batch them
   const approveTx = WrappedFTM.encodeFunctionData("approve", [XLABS_RELAYER_ADDRESS, AMOUNT_TO_SEND]);
+  console.log("APPROVE", approveTx);
 
   const relayerFee = await TokenRelayer.calculateRelayerFee(DESTINATION_CHAIN_ID, WRAPPED_FTM_ADDRESS, 18);
   console.log(`The relayer fee for this token will be ${relayerFee}.`);
@@ -202,12 +217,13 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
     '0x0000000000000000000000000394c0EdFcCA370B20622721985B577850B0eb75', // Target recipient
     0 // batchId
   ]);
+  console.log("TRANSFER", transferTx);
 
   const batchTx = Batch.encodeFunctionData('batchAll', [
     [WRAPPED_FTM_ADDRESS, XLABS_RELAYER_ADDRESS],
     [0, 0],
     [approveTx, transferTx],
-    [90000, 300000]
+    [150000, 300000] // put the gas estimates here, best to use eth_estimateGas
   ]);
 
   // Create the ethereumXCM extrinsic that uses the batch precompile
@@ -224,6 +240,7 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
   });
   console.log("===============================================");
   console.log("Batched XLabs EVM Tx:", batchXCMTx.method.toHex());
+
   return batchXCMTx;
 }
 
