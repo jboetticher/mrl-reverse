@@ -142,20 +142,25 @@ async function main() {
             }
           }
         },
-        // {
-        //   RefundSurplus: {}
-        // },
-        // {
-        //   DepositAsset: {
-        //     assets: { Wild: "All" },
-        //     beneficiary: {
-        //       parents: new BN(0),
-        //       interior: { X1: { AccountKey20: { key: MLD_ACCOUNT } } },
-        //     },
-        //   },
-        // }
+        {
+          RefundSurplus: {}
+        },
+        {
+          DepositAsset: {
+            assets: { Wild: { AllCounted: 1 } },
+            beneficiary: {
+              parents: new BN(0),
+              interior: { X1: { AccountKey20: { key: MLD_ACCOUNT } } },
+            },
+          },
+        }
       ]
     });
+
+  console.log("===============================================");
+  console.log("Remote EVM Tx:", xcmExtrinsic.method.toHex());
+
+  // return;
 
   return await xcmExtrinsic.signAndSend(account, ({ status }) => {
     if (status.isInBlock) {
@@ -166,9 +171,6 @@ async function main() {
       return;
     }
   });
-
-  console.log("===============================================");
-  console.log("Remote EVM Tx:", xcmExtrinsic.method.toHex());
 
   // Wrap those in a batch transaction. This transaction will:
   // 1. Send FTM + DEV together
@@ -223,13 +225,13 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
     [WRAPPED_FTM_ADDRESS, XLABS_RELAYER_ADDRESS],
     [0, 0],
     [approveTx, transferTx],
-    [150000, 300000] // put the gas estimates here, best to use eth_estimateGas
+    [] // put the gas estimates here, best to use eth_estimateGas
   ]);
 
   // Create the ethereumXCM extrinsic that uses the batch precompile
   const batchXCMTx = alphaAPI.tx.ethereumXcm.transact({
     V1: {
-      gasLimit: new BN(400000),
+      gasLimit: new BN(350000),
       feePayment: 'Auto',
       action: {
         Call: BATCH_PRECOMPILE_ADDRESS
