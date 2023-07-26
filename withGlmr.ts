@@ -147,6 +147,7 @@ async function main() {
         },
         {
           DepositAsset: {
+            // Note that this must be AllCounted and not All, since All has too high of a gas requirement
             assets: { Wild: { AllCounted: 1 } },
             beneficiary: {
               parents: new BN(0),
