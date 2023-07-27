@@ -4,6 +4,7 @@ import { BN } from "@polkadot/util";
 import { ethers, providers } from 'ethers';
 import secrets from './secrets';
 import abi from './abi';
+import calculateMDA from './calculateMDA';
 
 /*
 REQUIREMENTS:
@@ -28,7 +29,6 @@ const BETA_ENDPOINT = 'wss://frag-moonbase-beta-rpc-ws.g.moonbase.moonbeam.netwo
 const BATCH_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000808';
 const WRAPPED_FTM_ADDRESS = '0x566c1cebc6A4AFa1C122E039C4BEBe77043148Ee';
 const XLABS_RELAYER_ADDRESS = '0x9563a59c15842a6f322b10f69d1dd88b41f2e97b'; // MAINNET: 0xcafd2f0a35a4459fa40c0517e17e6fa2939441ca
-const MLD_ACCOUNT = '0xD117eD760630549A4A8302BEC538B7b285751EcA';
 
 // Constants
 const AMOUNT_TO_SEND = "250000000000000000";
@@ -45,6 +45,10 @@ async function main() {
   const alphaAPI = await ApiPromise.create({ provider: alphaWSProvider });
   const betaWSProvider = new WsProvider(BETA_ENDPOINT);
   const betaAPI = await ApiPromise.create({ provider: betaWSProvider });
+
+  // Calculate the multilocation derivative account
+  const parachainID = await betaAPI.query.parachainInfo.parachainId();
+  const MLD_ACCOUNT = await calculateMDA(account.address, parachainID.toString(), 1);
 
   // Create transaction to send FTM and DEV, with DEV as the fee
   const sendFTMExtrinsic = betaAPI.tx.xTokens.transferMultiassets(
@@ -161,18 +165,6 @@ async function main() {
   console.log("===============================================");
   console.log("Remote EVM Tx:", xcmExtrinsic.method.toHex());
 
-  // return;
-
-  return await xcmExtrinsic.signAndSend(account, ({ status }) => {
-    if (status.isInBlock) {
-      console.log("===============================================");
-      console.log(`Moonbase Beta transaction successful!`);
-      alphaAPI.disconnect();
-      betaAPI.disconnect();
-      return;
-    }
-  });
-
   // Wrap those in a batch transaction. This transaction will:
   // 1. Send FTM + DEV together
   // 2. Use the left over DEV as the fee currency to do the wormhole route
@@ -188,6 +180,8 @@ async function main() {
     if (status.isInBlock) {
       console.log("===============================================");
       console.log(`Moonbase Beta transaction successful!`);
+      betaAPI.disconnect();
+      alphaAPI.disconnect();
       return;
     }
   });
