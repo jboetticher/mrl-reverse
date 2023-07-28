@@ -212,7 +212,7 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
     AMOUNT_TO_SEND,
     0, // amount of natural currency to turn into fee? Should work on testnet as long as not 0
     DESTINATION_CHAIN_ID, // Target chain, Fantom
-    '0x0000000000000000000000000394c0EdFcCA370B20622721985B577850B0eb75', // Target recipient
+    '0x0000000000000000000000000394c0EdFcCA370B20622721985B577850B0eb75', // Target recipient, left padded
     0 // batchId
   ]);
   console.log("TRANSFER", transferTx);
