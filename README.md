@@ -8,9 +8,9 @@ The optimal solution would use only one relayer action: through the Wormhole rel
 2. User batches 2 xcm messages from parachain Y to Moonbeam: 
     - Send asset X to a MultiLocation Derivative Account (MLDA) on Moonbeam
     - Remote EVM call (by MLDA) that batches the following EVM actions:
-        - Approves Wormhole token bridge for use of asset X
+        - Approves xLabs relayer for use of asset X
         - Bridges asset X via token bridge
-3. Wormhole relayer sends the tokens to the destination chain  
+3. xLabs relayer sends the tokens to the destination chain  
 
 ## Issues
 
@@ -38,8 +38,8 @@ There is a pathway that works today, but it requires the user to own both asset 
 2. User batches 2 xcm messages from parachain Y to Moonbeam: 
     - Send asset X and xcGLMR to a MultiLocation Derivative Account (MLDA) on Moonbeam, using xcGLMR as the fee currency
     - Remote EVM call (by MLDA) that batches the following EVM actions:
-        - Approves Wormhole token bridge for use of asset X
+        - Approves xLabs relayer for use of asset X
         - Bridges asset X via token bridge
-3. Wormhole relayer sends the tokens to the destination chain  
+3. xLabs relayer sends the tokens to the destination chain  
 
-Interestingly enough, using xcGLMR solves the remote execution issue automatically. You can see this process in `withGlmr.ts`.
+Interestingly enough, using xcGLMR solves the remote execution issue automatically. You can see this process in `reverse-transfer.ts`.

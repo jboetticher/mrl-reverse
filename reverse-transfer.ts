@@ -192,8 +192,9 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
   // Get Batch, IERC20, ITokenBridge contracts
   const Batch = new ethers.utils.Interface(abi.Batch);
   const WrappedFTM = new ethers.utils.Interface(abi.IERC20);
+  // https://github.com/wormhole-foundation/example-token-bridge-relayer/blob/main/evm/src/token-bridge-relayer/TokenBridgeRelayer.sol
   const TokenRelayer = new ethers.Contract(
-    XLABS_RELAYER_ADDRESS,
+    XLABS_RELAYER_ADDRESS, 
     abi.TokenRelayer,
     new providers.JsonRpcProvider('https://moonbase-alpha.public.blastapi.io')
   );
