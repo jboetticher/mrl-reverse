@@ -183,15 +183,15 @@ async function main() {
   console.log('Batch Extrinsic:', batchExtrinsic.method.toHex());
 
   // Send batch transaction
-  // return await batchExtrinsic.signAndSend(account, ({ status }) => {
-  //   if (status.isInBlock) {
-  //     console.log("===============================================");
-  //     console.log(`HydraDX transaction successful!`);
-  //     hydraAPI.disconnect();
-  //     alphaAPI.disconnect();
-  //     return;
-  //   }
-  // });
+  return await batchExtrinsic.signAndSend(account, ({ status }) => {
+    if (status.isInBlock) {
+      console.log("===============================================");
+      console.log(`HydraDX transaction successful!`);
+      hydraAPI.disconnect();
+      alphaAPI.disconnect();
+      return;
+    }
+  });
 }
 
 // Creates an ethereumXCM extrinsic that approves WFTM + transfers tokens
