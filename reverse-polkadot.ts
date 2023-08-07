@@ -23,18 +23,19 @@ In a single transaction, batch 2 xcm transactions:
 */
 
 // Endpoints
-const ALPHA_ENDPOINT = 'wss://wss.api.moonbase.moonbeam.network';
-const HYDRA_ENDPOINT = 'wss://hydradx-moonbase-rpc.play.hydration.cloud';
+const MB_ENDPOINT = 'wss://wss.api.moonbeam.network';
+const HYDRA_ENDPOINT = 'wss://rpc.hydradx.cloud';
 
 // Smart Contracts & Addresses
 const BATCH_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000808';
-const WRAPPED_FTM_ADDRESS = '0x566c1cebc6A4AFa1C122E039C4BEBe77043148Ee';
-const XLABS_RELAYER_ADDRESS = '0x9563a59c15842a6f322b10f69d1dd88b41f2e97b'; // MAINNET: 0xcafd2f0a35a4459fa40c0517e17e6fa2939441ca
+const WRAPPED_ETH_ADDRESS = '0xab3f0245b83feb11d15aaffefd7ad465a59817ed';
+const XLABS_RELAYER_ADDRESS = '0xcafd2f0a35a4459fa40c0517e17e6fa2939441ca'; // MAINNET: 0xcafd2f0a35a4459fa40c0517e17e6fa2939441ca
 
 // Constants
-const AMOUNT_TO_SEND = "150000000000000000";
+const AMOUNT_TO_SEND = "1000000000000000";
 const DESTINATION_CHAIN_ID = 10; // Fantom
-const BALANCE_PALLET = 3; // 10 on Moonbeam, 3 on Alphanet
+const BALANCE_PALLET = 10; // 10 on Moonbeam, 3 on Alphanet
+const MOONBEAM_PARACHAIN_ID = 2004; // 2004 on Moonbeam, 1000 on Alphanet
 
 async function main() {
   // Wait for crypto to be loaded
@@ -45,7 +46,7 @@ async function main() {
   let account = keyring.addFromUri(secrets.polkadotKey);
 
   // Create the API interface
-  const alphaWSProvider = new WsProvider(ALPHA_ENDPOINT);
+  const alphaWSProvider = new WsProvider(MB_ENDPOINT);
   const alphaAPI = await ApiPromise.create({ provider: alphaWSProvider });
   const hydraWSProvider = new WsProvider(HYDRA_ENDPOINT);
   const hydraAPI = await ApiPromise.create({ provider: hydraWSProvider });
@@ -67,7 +68,7 @@ async function main() {
               parents: 1,
               interior: {
                 X2: [
-                  { Parachain: 1000 },
+                  { Parachain: MOONBEAM_PARACHAIN_ID },
                   { PalletInstance: BALANCE_PALLET },
                 ]
               }
@@ -77,15 +78,15 @@ async function main() {
             Fungible: "100000000000000000",
           }
         },
-        { // WFTM
+        { // WETH
           id: {
             Concrete: {
               parents: 1,
               interior: {
                 X3: [
-                  { Parachain: 1000 },
-                  { PalletInstance: 48 },
-                  { AccountKey20: { key: WRAPPED_FTM_ADDRESS } }
+                  { Parachain: MOONBEAM_PARACHAIN_ID },
+                  { PalletInstance: 110 }, // 110 on MainNet, 48 on TestNet
+                  { AccountKey20: { key: WRAPPED_ETH_ADDRESS } }
                 ]
               }
             }
@@ -102,7 +103,7 @@ async function main() {
         parents: 1,
         interior: {
           X2: [
-            { Parachain: 1000 },
+            { Parachain: MOONBEAM_PARACHAIN_ID },
             { AccountKey20: { key: MLD_ACCOUNT } }
           ]
         }
@@ -120,7 +121,7 @@ async function main() {
   console.log("===============================================");
   console.log("Payment Info for Transact:", txWeight.toString());
   const xcmExtrinsic = hydraAPI.tx.polkadotXcm.send(
-    { V3: { parents: new BN(1), interior: { X1: { Parachain: 1000 } } } },
+    { V3: { parents: new BN(1), interior: { X1: { Parachain: MOONBEAM_PARACHAIN_ID } } } },
     {
       V3: [
         // Withdraw DEV asset (0.06) from the target account
@@ -137,7 +138,7 @@ async function main() {
           BuyExecution: {
             fees:
             {
-              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: 3 } } } },
+              id: { Concrete: { parents: new BN(0), interior: { X1: { PalletInstance: BALANCE_PALLET } } } },
               fun: { Fungible: new BN("60000000000000000") }
             },
             weightLimit: 'Unlimited'
@@ -203,19 +204,19 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
   const TokenRelayer = new ethers.Contract(
     XLABS_RELAYER_ADDRESS,
     abi.TokenRelayer,
-    new providers.JsonRpcProvider('https://moonbase-alpha.public.blastapi.io')
+    new providers.JsonRpcProvider('https://moonbeam.public.blastapi.io')
   );
 
   // Create contract calls & batch them
   const approveTx = WrappedFTM.encodeFunctionData("approve", [XLABS_RELAYER_ADDRESS, AMOUNT_TO_SEND]);
   console.log("APPROVE", approveTx);
 
-  const relayerFee = await TokenRelayer.calculateRelayerFee(DESTINATION_CHAIN_ID, WRAPPED_FTM_ADDRESS, 18);
-  console.log(`The relayer fee for this token will be ${relayerFee}.`);
+  const relayerFee = await TokenRelayer.calculateRelayerFee(DESTINATION_CHAIN_ID, WRAPPED_ETH_ADDRESS, 18);
+  console.log(`The relayer fee for this token will be ${relayerFee}.`); 
 
   // TODO: replace with wrapAndTransferEthWithRelay if is GLMR
   const transferTx = TokenRelayer.interface.encodeFunctionData("transferTokensWithRelay", [
-    WRAPPED_FTM_ADDRESS,
+    WRAPPED_ETH_ADDRESS,
     AMOUNT_TO_SEND,
     0, // amount of natural currency to turn into fee? Should work on testnet as long as not 0
     DESTINATION_CHAIN_ID, // Target chain, Fantom
@@ -225,11 +226,12 @@ async function batchApproveTransferTx(alphaAPI: ApiPromise) {
   console.log("TRANSFER", transferTx);
 
   const batchTx = Batch.encodeFunctionData('batchAll', [
-    [WRAPPED_FTM_ADDRESS, XLABS_RELAYER_ADDRESS],
+    [WRAPPED_ETH_ADDRESS, XLABS_RELAYER_ADDRESS],
     [0, 0],
     [approveTx, transferTx],
     [] // put the gas estimates here, best to use eth_estimateGas
   ]);
+  console.log("BATCH", batchTx)
 
   // Create the ethereumXCM extrinsic that uses the batch precompile
   const batchXCMTx = alphaAPI.tx.ethereumXcm.transact({
