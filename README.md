@@ -1,3 +1,5 @@
+**THIS IS NOW AN ARCHIVED REPOSITORY. PLEASE REFER TO [MRL-MONO](https://github.com/jboetticher/mrl-mono) FOR THE MOST UP TO DATE CODE!**
+
 # MRL Reverse
 
 The point of this repository is to find a proper pathway from Parachains -> Moonbeam -> Wormhole -> Destination. 
